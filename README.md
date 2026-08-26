@@ -190,10 +190,10 @@ python test_integration.py
 
 | Member | Role | Responsibilities | Module |
 |--------|------|------------------|--------|
-| **Member 1** | Satellite Image Fetcher | Sentinel API integration, geocoding & tile caching | `src/member1_fetcher.py` |
-| **Member 2** | AI Detection Engineer | Computer vision, structural footprint & change heatmaps | `src/member2_detector.py` |
-| **Member 3** | UI/UX Developer | Dynamic surveillance dashboard, maps & visualizations | `src/member3_dashboard.py` |
-| **Member 4** | Integration Lead | SQLite database ledger, dossier generator & presentation | `integration.py` |
+| **Saba Qadeer** | Satellite Image Fetcher | Sentinel API integration, geocoding & tile caching | `src/member1_fetcher.py` |
+| **Shifa Maheen** | AI Detection Engineer | Computer vision, structural footprint & change heatmaps | `src/member2_detector.py` |
+| **Saniya Khatoon** | UI/UX Developer | Dynamic surveillance dashboard, maps & visualizations | `src/member3_dashboard.py` |
+| **Alishah Khan** | Integration Lead | SQLite database ledger, dossier generator & presentation | `integration.py` |
 
 ---
 
@@ -276,7 +276,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- **Smart India Hackathon 2026** - Platform and inspiration
 - **Copernicus Sentinel Hub & Esri** - Satellite earth observation data
 - **Streamlit & OpenCV Community** - Open-source tools
 - **All team members** - For their dedication and hard work
@@ -289,4 +288,4 @@ If you find this project helpful, please give us a star ⭐ on GitHub: [Alishah-
 
 ---
 
-**Made with ❤️ for Smart India Hackathon 2026**
+
