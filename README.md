@@ -285,7 +285,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## ⭐ Star us on GitHub!
 
 If you find this project helpful, please give us a star ⭐ on GitHub: [Alishah-khan/Fake-infrastructure-detector](https://github.com/Alishah-khan/Fake-infrastructure-detector)!
-
+Note: This is only for DEMO purpose.
 ---
 
 
