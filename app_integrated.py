@@ -70,9 +70,8 @@ page = st.radio("Portal navigation", PAGES, key="nav", horizontal=True, label_vi
 
 
 def go_to(destination: str):
-    """Switches the active portal page."""
+    """Switches the active portal page. Runs as a widget callback, before the nav widget is built."""
     st.session_state["nav"] = destination
-    st.rerun()
 
 
 def budget_label(amount) -> str:
@@ -214,9 +213,8 @@ if page == "Home & Overview":
                 f'<div class="gov-card"><h4>{title}</h4><div class="meta">{description}</div></div>',
                 unsafe_allow_html=True,
             )
-            if st.button(f"Enter {title.split()[0].lower()} portal", key=f"route_{destination}",
-                         use_container_width=True):
-                go_to(destination)
+            st.button(f"Enter {title.split()[0].lower()} portal", key=f"route_{destination}",
+                      use_container_width=True, on_click=go_to, args=(destination,))
 
     st.markdown(render_section(
         "Documented execution failures",
