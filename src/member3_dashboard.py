@@ -1,408 +1,333 @@
 """
-Module: User Interface & Visual Layout Engine
-Author: Member 3 (UI/UX & Frontend Lead)
+Module: Interface Design System
 
-Provides custom styling, centered hero branding, centered navigation tabs,
-and cinematic animations (screen cracks for suspicious fraud, and green laser for verified).
+Government portal design system: colour tokens, typography, navigation bar,
+publication-style cards and verification result banners.
 """
 
-from PIL import Image, ImageFile
 from pathlib import Path
+
+from PIL import Image, ImageFile
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+NAVY = "#0A192F"
+SLATE = "#1E293B"
+GOLD = "#D97706"
+EMERALD = "#059669"
+CRIMSON = "#DC2626"
+CANVAS = "#FAF8F4"
+
 
 def get_custom_ui_theme():
-    """Returns CSS theme with centered hero design, centered tabs, and cinematic animations."""
-    return """
+    """Returns the portal stylesheet."""
+    return f"""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600;700&display=swap');
 
-    html, body, [class*="css"] {
-        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    }
+    :root {{
+        --navy: {NAVY};
+        --slate: {SLATE};
+        --gold: {GOLD};
+        --emerald: {EMERALD};
+        --crimson: {CRIMSON};
+        --canvas: {CANVAS};
+        --line: #DDD6CA;
+    }}
 
-    /* CENTERED HERO CONTAINER */
-    .hero-center-container {
-        text-align: center;
-        padding: 32px 24px 28px 24px;
-        background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
-        border-radius: 24px;
-        border: 1px solid #e2e8f0;
-        box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05);
-        margin: 0 auto 28px auto;
-        max-width: 1000px;
-        position: relative;
-    }
-    .hero-center-container::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 320px;
-        height: 4px;
-        background: linear-gradient(90deg, #3b82f6, #10b981, #3b82f6);
-        border-radius: 0 0 10px 10px;
-    }
-    .hero-pill {
-        display: inline-block;
-        background: #eff6ff;
-        color: #2563eb;
-        border: 1px solid #dbeafe;
-        padding: 6px 18px;
-        border-radius: 30px;
-        font-size: 0.82rem;
-        font-weight: 700;
-        letter-spacing: 0.5px;
+    html, body, [class*="css"] {{
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }}
+    .stApp {{
+        background: var(--canvas);
+    }}
+    .block-container {{
+        padding-top: 1.6rem;
+        max-width: 1280px;
+    }}
+    h1, h2, h3, h4 {{
+        font-family: 'Source Serif 4', Georgia, serif;
+        color: var(--navy);
+        letter-spacing: -0.01em;
+    }}
+
+    /* Masthead */
+    .gov-masthead {{
+        background: var(--navy);
+        border-bottom: 4px solid var(--gold);
+        border-radius: 4px 4px 0 0;
+        padding: 22px 30px 20px 30px;
+        color: #F8FAFC;
+    }}
+    .gov-masthead .emblem {{
+        font-size: 0.72rem;
+        letter-spacing: 0.18em;
         text-transform: uppercase;
-        margin-bottom: 12px;
-    }
-    .hero-title-main {
-        font-size: 3rem;
-        font-weight: 900;
-        color: #0f172a;
-        letter-spacing: -1px;
-        margin: 0 0 10px 0;
-        line-height: 1.15;
-        text-align: center;
-    }
-    .hero-title-gradient {
-        background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #059669 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-    .hero-tagline {
-        font-size: 1.05rem;
-        color: #64748b;
-        max-width: 720px;
-        margin: 0 auto;
-        line-height: 1.6;
-        font-weight: 500;
-        text-align: center;
-    }
-
-    /* CENTER ALIGN STREAMLIT TABS BAR */
-    .stTabs [data-baseweb="tab-list"] {
-        display: flex;
-        justify-content: center;
-        width: 100%;
-        gap: 12px;
-        border-bottom: 2px solid #e2e8f0;
-        margin-bottom: 24px;
-    }
-    .stTabs [data-baseweb="tab"] {
+        color: #94A3B8;
+        margin-bottom: 6px;
+    }}
+    .gov-masthead h1 {{
+        color: #FFFFFF;
+        font-size: 2rem;
+        margin: 0 0 6px 0;
+    }}
+    .gov-masthead .strapline {{
+        color: #CBD5E1;
         font-size: 0.95rem;
+        max-width: 780px;
+        line-height: 1.55;
+        margin: 0;
+    }}
+
+    /* Navigation bar */
+    div[role="radiogroup"] {{
+        background: var(--slate);
+        border-radius: 0 0 4px 4px;
+        padding: 4px 10px;
+        margin-bottom: 24px;
+        gap: 4px;
+    }}
+    div[role="radiogroup"] > label {{
+        padding: 10px 18px;
+        margin: 0;
+        border-bottom: 3px solid transparent;
+    }}
+    div[role="radiogroup"] > label > div:first-child {{ display: none; }}
+    div[role="radiogroup"] > label p {{
+        color: #CBD5E1;
         font-weight: 600;
-        padding: 10px 20px;
-        border-radius: 10px 10px 0 0;
-    }
+        font-size: 0.88rem;
+        letter-spacing: 0.01em;
+    }}
+    div[role="radiogroup"] > label:hover p {{ color: #FFFFFF; }}
+    div[role="radiogroup"] > label:has(input:checked) {{
+        border-bottom-color: var(--gold);
+        background: rgba(255, 255, 255, 0.06);
+    }}
+    div[role="radiogroup"] > label:has(input:checked) p {{ color: #FFFFFF; }}
 
-    /* ------------------------------------------------------------- */
-    /* 🚨 CINEMATIC CRACKS & RED EMERGENCY SIREN (FOR SUSPICIOUS)   */
-    /* ------------------------------------------------------------- */
-    @keyframes screenShake {
-        0%, 100% { transform: translate(0, 0) rotate(0deg); }
-        10% { transform: translate(-6px, 6px) rotate(-0.8deg); }
-        20% { transform: translate(6px, -5px) rotate(0.8deg); }
-        30% { transform: translate(-5px, 4px) rotate(-0.5deg); }
-        40% { transform: translate(5px, -4px) rotate(0.5deg); }
-        50% { transform: translate(-4px, 3px) rotate(-0.3deg); }
-        60% { transform: translate(3px, -2px) rotate(0.3deg); }
-    }
+    /* Section headings */
+    .section-rule {{
+        border-left: 4px solid var(--gold);
+        padding-left: 14px;
+        margin: 6px 0 18px 0;
+    }}
+    .section-rule h3 {{
+        margin: 0;
+        font-size: 1.35rem;
+    }}
+    .section-rule p {{
+        margin: 4px 0 0 0;
+        color: #64748B;
+        font-size: 0.9rem;
+    }}
 
-    @keyframes crackLineDraw {
-        0% { stroke-dashoffset: 1200; opacity: 0; }
-        10% { opacity: 1; }
-        100% { stroke-dashoffset: 0; opacity: 0.95; }
-    }
+    /* Publication-style cards */
+    .gov-card {{
+        background: #FFFFFF;
+        border: 1px solid var(--line);
+        border-top: 3px solid var(--navy);
+        border-radius: 4px;
+        padding: 18px 20px;
+        margin-bottom: 16px;
+    }}
+    .gov-card h4 {{
+        margin: 0 0 6px 0;
+        font-size: 1.05rem;
+    }}
+    .gov-card .meta {{
+        color: #64748B;
+        font-size: 0.82rem;
+        margin-bottom: 10px;
+    }}
+    .gov-card.is-flagged {{ border-top-color: var(--crimson); }}
+    .gov-card.is-clear {{ border-top-color: var(--emerald); }}
 
-    @keyframes redPulseAlert {
-        0%, 100% {
-            box-shadow: 0 0 40px rgba(220, 38, 38, 0.6), inset 0 0 30px rgba(220, 38, 38, 0.3);
-            border-color: #ef4444;
-        }
-        50% {
-            box-shadow: 0 0 90px rgba(239, 68, 68, 0.95), inset 0 0 50px rgba(239, 68, 68, 0.5);
-            border-color: #dc2626;
-        }
-    }
-
-    .suspicious-screen-takeover {
-        animation: screenShake 0.7s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
-        position: relative;
-        background: linear-gradient(145deg, #450a0a 0%, #1f0202 100%);
-        border: 3px solid #ef4444;
-        border-radius: 24px;
-        padding: 36px 28px;
-        margin: 20px 0;
-        color: #ffffff;
-        text-align: center;
-        animation: redPulseAlert 1.6s infinite ease-in-out;
-        overflow: hidden;
-    }
-
-    .crack-overlay-svg {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
+    .stat-tile {{
+        background: #FFFFFF;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 16px 18px;
         height: 100%;
-        pointer-events: none;
-        z-index: 1;
-    }
-    .crack-path {
-        stroke: rgba(254, 202, 202, 0.85);
-        stroke-width: 3;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-        stroke-dasharray: 1200;
-        animation: crackLineDraw 0.8s ease-out forwards;
-        filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.9));
-    }
-
-    .suspicious-alert-badge {
-        display: inline-block;
-        background: #dc2626;
-        color: #ffffff;
-        font-weight: 900;
-        font-size: 1rem;
-        padding: 8px 24px;
-        border-radius: 30px;
-        letter-spacing: 1.5px;
+    }}
+    .stat-tile .label {{
+        font-size: 0.72rem;
+        letter-spacing: 0.12em;
         text-transform: uppercase;
-        box-shadow: 0 0 25px rgba(220, 38, 38, 0.8);
-        margin-bottom: 14px;
-        position: relative;
-        z-index: 2;
-    }
-    .suspicious-main-heading {
-        font-size: 2.3rem;
-        font-weight: 900;
-        color: #fee2e2;
-        margin: 8px 0 12px 0;
-        letter-spacing: -0.5px;
-        position: relative;
-        z-index: 2;
-        text-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
-    }
-    .suspicious-desc {
-        font-size: 1.15rem;
-        color: #fca5a5;
-        max-width: 760px;
-        margin: 0 auto 20px auto;
-        line-height: 1.5;
-        position: relative;
-        z-index: 2;
-    }
+        color: #64748B;
+    }}
+    .stat-tile .value {{
+        font-family: 'Source Serif 4', Georgia, serif;
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: var(--navy);
+        line-height: 1.2;
+        margin-top: 4px;
+    }}
+    .stat-tile .note {{
+        font-size: 0.8rem;
+        color: #64748B;
+    }}
 
-    /* ------------------------------------------------------------- */
-    /* ✅ CELEBRATORY GREEN HOLOGRAPHIC SHIELD (FOR VERIFIED)       */
-    /* ------------------------------------------------------------- */
-    @keyframes greenHoloGlow {
-        0%, 100% {
-            box-shadow: 0 0 45px rgba(22, 163, 74, 0.5), inset 0 0 25px rgba(22, 163, 74, 0.2);
-            border-color: #22c55e;
-        }
-        50% {
-            box-shadow: 0 0 85px rgba(34, 197, 94, 0.85), inset 0 0 45px rgba(34, 197, 94, 0.4);
-            border-color: #16a34a;
-        }
-    }
-
-    @keyframes laserScan {
-        0% { transform: translateY(-100%); opacity: 0; }
-        50% { opacity: 0.8; }
-        100% { transform: translateY(100%); opacity: 0; }
-    }
-
-    .verified-screen-takeover {
-        position: relative;
-        background: linear-gradient(145deg, #052e16 0%, #022c22 100%);
-        border: 3px solid #22c55e;
-        border-radius: 24px;
-        padding: 36px 28px;
-        margin: 20px 0;
-        color: #ffffff;
-        text-align: center;
-        animation: greenHoloGlow 2s infinite ease-in-out;
-        overflow: hidden;
-    }
-    .verified-laser-line {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 6px;
-        background: linear-gradient(90deg, transparent, #4ade80, transparent);
-        animation: laserScan 2.2s infinite linear;
-        box-shadow: 0 0 20px #22c55e;
-    }
-    .verified-alert-badge {
+    /* Status badges */
+    .badge-verified, .badge-suspicious, .badge-progress, .badge-neutral {{
         display: inline-block;
-        background: #16a34a;
-        color: #ffffff;
-        font-weight: 900;
-        font-size: 1rem;
-        padding: 8px 24px;
-        border-radius: 30px;
-        letter-spacing: 1.5px;
+        padding: 3px 10px;
+        border-radius: 3px;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        box-shadow: 0 0 25px rgba(22, 163, 74, 0.8);
-        margin-bottom: 14px;
-    }
-    .verified-main-heading {
-        font-size: 2.3rem;
-        font-weight: 900;
-        color: #dcfce7;
-        margin: 8px 0 12px 0;
-        letter-spacing: -0.5px;
-        text-shadow: 0 0 20px rgba(34, 197, 94, 0.8);
-    }
-    .verified-desc {
-        font-size: 1.15rem;
-        color: #86efac;
-        max-width: 760px;
-        margin: 0 auto 20px auto;
-        line-height: 1.5;
-    }
+    }}
+    .badge-verified {{ background: #ECFDF5; color: var(--emerald); border: 1px solid #A7F3D0; }}
+    .badge-suspicious {{ background: #FEF2F2; color: var(--crimson); border: 1px solid #FECACA; }}
+    .badge-progress {{ background: #FFFBEB; color: var(--gold); border: 1px solid #FDE68A; }}
+    .badge-neutral {{ background: #F1F5F9; color: var(--slate); border: 1px solid #E2E8F0; }}
 
-    /* Common Card Badges */
-    .badge-verified {
-        background: #16a34a;
-        color: #ffffff;
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 0.76rem;
-        font-weight: 700;
-        display: inline-block;
-    }
-    .badge-suspicious {
-        background: #dc2626;
-        color: #ffffff;
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 0.76rem;
-        font-weight: 700;
-        display: inline-block;
-    }
-    .badge-progress {
-        background: #d97706;
-        color: #ffffff;
-        padding: 5px 12px;
-        border-radius: 20px;
-        font-size: 0.76rem;
-        font-weight: 700;
-        display: inline-block;
-    }
-
-    .metric-chip-row {
+    .metric-chip-row {{
         display: flex;
         justify-content: space-between;
-        background: #f8fafc;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 4px;
         padding: 8px 12px;
         margin: 12px 0;
-    }
-    .metric-chip-item {
-        text-align: center;
-    }
-    .metric-chip-val {
-        font-size: 0.95rem;
-        font-weight: 700;
-        color: #1e293b;
-    }
-    .metric-chip-lbl {
-        font-size: 0.7rem;
-        color: #64748b;
-        text-transform: uppercase;
-    }
+    }}
+    .metric-chip-item {{ text-align: center; }}
+    .metric-chip-val {{ font-size: 0.95rem; font-weight: 700; color: var(--slate); }}
+    .metric-chip-lbl {{ font-size: 0.68rem; color: #64748B; text-transform: uppercase; letter-spacing: 0.06em; }}
 
-    .audit-callout {
-        font-size: 0.82rem;
+    .audit-callout {{
+        font-size: 0.84rem;
         color: #334155;
-        background: #f1f5f9;
-        border-left: 3px solid #64748b;
-        border-radius: 6px;
-        padding: 8px 12px;
+        background: #F8FAFC;
+        border-left: 3px solid var(--gold);
+        padding: 9px 12px;
         margin-bottom: 12px;
-        line-height: 1.4;
-    }
+        line-height: 1.45;
+    }}
+
+    /* Verification result banners */
+    .verdict-banner {{
+        border-radius: 4px;
+        padding: 22px 26px;
+        margin: 18px 0;
+        color: #F8FAFC;
+        background: var(--navy);
+        border-left: 6px solid var(--gold);
+    }}
+    .verdict-banner.is-flagged {{ border-left-color: var(--crimson); }}
+    .verdict-banner.is-clear {{ border-left-color: var(--emerald); }}
+    .verdict-banner .kicker {{
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #94A3B8;
+    }}
+    .verdict-banner h2 {{
+        color: #FFFFFF;
+        font-size: 1.5rem;
+        margin: 6px 0 8px 0;
+    }}
+    .verdict-banner p {{
+        color: #CBD5E1;
+        margin: 0 0 14px 0;
+        line-height: 1.55;
+    }}
+    .verdict-facts {{ display: flex; gap: 10px; flex-wrap: wrap; }}
+    .verdict-facts span {{
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        color: #E2E8F0;
+        padding: 6px 14px;
+        border-radius: 3px;
+        font-size: 0.82rem;
+        font-weight: 600;
+    }}
+
+    /* Login panel */
+    .login-panel {{
+        background: #FFFFFF;
+        border: 1px solid var(--line);
+        border-top: 3px solid var(--gold);
+        border-radius: 4px;
+        padding: 8px 26px 4px 26px;
+    }}
+    .login-panel .crest {{
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--gold);
+        font-weight: 700;
+    }}
+
+    .gov-footer {{
+        text-align: center;
+        color: #94A3B8;
+        font-size: 0.82rem;
+        padding: 22px 0 8px 0;
+        border-top: 1px solid var(--line);
+        margin-top: 30px;
+    }}
     </style>
     """
 
 
-def render_suspicious_cracks_alert(project_name: str, reason: str, confidence: float, budget: float):
-    """Renders the dramatic screen crack animation with glowing red siren takeover."""
-    budget_str = f"₹{budget/1e7:.2f} Crore" if budget >= 1e7 else f"₹{budget/1e5:.1f} Lakh"
+def render_masthead(title: str, strapline: str, kicker: str) -> str:
+    """Returns the portal masthead markup."""
     return f"""
-    <div class="suspicious-screen-takeover">
-        <svg class="crack-overlay-svg" viewBox="0 0 800 350" preserveAspectRatio="none">
-            <circle cx="400" cy="175" r="8" fill="#ef4444" filter="drop-shadow(0 0 10px #ff0000)" />
-            <path class="crack-path" d="M400,175 L280,60 L140,20 L0,0" />
-            <path class="crack-path" d="M400,175 L520,70 L670,30 L800,10" />
-            <path class="crack-path" d="M400,175 L310,240 L180,310 L20,350" />
-            <path class="crack-path" d="M400,175 L500,260 L690,320 L800,350" />
-            <path class="crack-path" d="M400,175 L390,30 L380,0" />
-            <path class="crack-path" d="M400,175 L415,310 L430,350" />
-            <path class="crack-path" d="M280,60 L240,120 L160,150 L0,160" />
-            <path class="crack-path" d="M520,70 L580,130 L720,160 L800,180" />
-            <path class="crack-path" d="M310,240 L250,220 L120,240" />
-            <path class="crack-path" d="M500,260 L570,230 L710,260" />
-        </svg>
-
-        <span class="suspicious-alert-badge">🚨 CRITICAL FRAUD DETECTED • PHANTOM ASSET FLAGGED</span>
-        <h2 class="suspicious-main-heading">⚠️ ZERO PHYSICAL INFRASTRUCTURE DETECTED</h2>
-        <p class="suspicious-desc"><b>{project_name}:</b> {reason}</p>
-        
-        <div style="display:flex; justify-content:center; gap:16px; flex-wrap:wrap; position:relative; z-index:2;">
-            <span style="background:rgba(220,38,38,0.3); border:1px solid #ef4444; color:#fee2e2; padding:8px 18px; border-radius:20px; font-weight:700; font-size:0.9rem;">
-                🎯 AI CONFIDENCE: {confidence}%
-            </span>
-            <span style="background:rgba(220,38,38,0.3); border:1px solid #ef4444; color:#fee2e2; padding:8px 18px; border-radius:20px; font-weight:700; font-size:0.9rem;">
-                💰 CAPITAL AT RISK: {budget_str}
-            </span>
-            <span style="background:#dc2626; color:#ffffff; padding:8px 18px; border-radius:20px; font-weight:700; font-size:0.9rem; box-shadow:0 0 15px rgba(220,38,38,0.6);">
-                🔒 TREASURY PAYMENT FROZEN
-            </span>
-        </div>
+    <div class="gov-masthead">
+        <div class="emblem">{kicker}</div>
+        <h1>{title}</h1>
+        <p class="strapline">{strapline}</p>
     </div>
     """
 
 
-def render_verified_hologram_alert(project_name: str, reason: str, confidence: float, growth: float):
-    """Renders the grand green holographic laser celebration for confirmed built projects."""
+def render_section(title: str, description: str = "") -> str:
+    """Returns a gold-ruled section heading."""
+    note = f"<p>{description}</p>" if description else ""
+    return f'<div class="section-rule"><h3>{title}</h3>{note}</div>'
+
+
+def render_stat_tile(label: str, value: str, note: str = "") -> str:
+    """Returns a key-figure tile."""
     return f"""
-    <div class="verified-screen-takeover">
-        <div class="verified-laser-line"></div>
-        <span class="verified-alert-badge">✅ GROUND TRUTH VERIFIED • ASSET CONFIRMED BUILT</span>
-        <h2 class="verified-main-heading">🌟 100% PHYSICAL CONSTRUCTION CONFIRMED</h2>
-        <p class="verified-desc"><b>{project_name}:</b> {reason}</p>
-        
-        <div style="display:flex; justify-content:center; gap:16px; flex-wrap:wrap;">
-            <span style="background:rgba(22,163,74,0.3); border:1px solid #4ade80; color:#dcfce7; padding:8px 18px; border-radius:20px; font-weight:700; font-size:0.9rem;">
-                🎯 AI CONFIDENCE: {confidence}%
-            </span>
-            <span style="background:rgba(22,163,74,0.3); border:1px solid #4ade80; color:#dcfce7; padding:8px 18px; border-radius:20px; font-weight:700; font-size:0.9rem;">
-                📈 BUILT-UP EXPANSION: +{growth}%
-            </span>
-            <span style="background:#16a34a; color:#ffffff; padding:8px 18px; border-radius:20px; font-weight:700; font-size:0.9rem; box-shadow:0 0 15px rgba(22,163,74,0.6);">
-                🏛️ APPROVED FOR FINAL SETTLEMENT
-            </span>
-        </div>
+    <div class="stat-tile">
+        <div class="label">{label}</div>
+        <div class="value">{value}</div>
+        <div class="note">{note}</div>
+    </div>
+    """
+
+
+def render_verdict_banner(verdict: str, project_name: str, reason: str, facts: list) -> str:
+    """Returns the verification outcome banner for a completed audit."""
+    if verdict == "VERIFIED":
+        modifier, kicker, heading = "is-clear", "Independent verification complete", "Asset confirmed on the ground"
+    elif verdict == "IN_PROGRESS":
+        modifier, kicker, heading = "", "Independent verification complete", "Partial execution detected"
+    else:
+        modifier, kicker, heading = "is-flagged", "Vigilance alert raised", "No qualifying construction detected"
+
+    fact_html = "".join(f"<span>{fact}</span>" for fact in facts)
+    return f"""
+    <div class="verdict-banner {modifier}">
+        <div class="kicker">{kicker}</div>
+        <h2>{heading}</h2>
+        <p><b>{project_name}</b> — {reason}</p>
+        <div class="verdict-facts">{fact_html}</div>
     </div>
     """
 
 
 def safe_load_image(img_path: str):
-    """Safely loads image with truncated file protection."""
+    """Loads an image, tolerating missing or truncated files."""
     try:
         if img_path and Path(img_path).exists():
-            img = Image.open(img_path)
-            img.load()
-            return img
+            image = Image.open(img_path)
+            image.load()
+            return image
     except Exception:
         pass
     return None
-
