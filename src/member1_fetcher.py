@@ -1,6 +1,5 @@
 """
 Module: Satellite Image Acquisition & Geocoding Service
-Author: Member 1 (Satellite & Spatial Data Lead)
 
 Provides geocoding resolution, satellite tile ingestion, and realistic sample generation.
 """
@@ -47,7 +46,7 @@ def geocode_location(query: str):
             pass
 
     try:
-        geolocator = Nominatim(user_agent="fake_infra_audit_sih_v1")
+        geolocator = Nominatim(user_agent="infraaudit_portal")
         loc = geolocator.geocode(query, timeout=4)
         if loc:
             return loc.latitude, loc.longitude, loc.address

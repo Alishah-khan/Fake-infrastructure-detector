@@ -1,469 +1,865 @@
 """
-Fake Infrastructure Detector
-AI-Powered Satellite Verification Platform for Public Infrastructure Projects.
+InfraAudit — National Infrastructure Verification Portal.
+
+Satellite earth observation and computer vision verification of publicly funded
+infrastructure, with separate access routes for vigilance officers, executing
+contractors and citizens.
 """
 
-import streamlit as st
+from datetime import date, datetime
+
 import folium
-from streamlit_folium import st_folium
-import plotly.express as px
 import pandas as pd
-from datetime import datetime, date
-from pathlib import Path
-from PIL import Image, ImageFile
+import plotly.express as px
+import streamlit as st
+from PIL import ImageFile
+from streamlit_folium import st_folium
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+from app_auth import authenticate
+from integration import (
+    evaluate_payment_gate, generate_audit_dossier, get_all_projects, get_audit_statistics,
+    get_case_studies, get_contractor_credibility_index, get_government_portal_contracts,
+    get_milestone_claims, get_mplads_summary, get_state_allocation_totals, get_warranty_claims,
+    get_whistleblower_reports, init_db, save_project, search_mp_allocations, seed_case_studies,
+    seed_sample_projects, submit_milestone_claim, submit_warranty_claim,
+    submit_whistleblower_report,
+)
 from src.member1_fetcher import (
-    geocode_location, fetch_satellite_pair, get_demo_samples_meta, generate_all_samples
+    fetch_satellite_pair, generate_all_samples, geocode_location, get_demo_samples_meta,
 )
 from src.member2_detector import analyze_infrastructure_project
-from src.member3_dashboard import get_custom_ui_theme, safe_load_image
-from integration import (
-    init_db, save_project, get_all_projects, get_flagged_projects,
-    get_audit_statistics, seed_sample_projects, generate_audit_dossier,
-    get_government_portal_contracts
+from src.member3_dashboard import (
+    get_custom_ui_theme, render_masthead, render_section, render_stat_tile,
+    render_verdict_banner, safe_load_image,
 )
 
-# Page Setup
+PAGES = [
+    "Home & Overview",
+    "Government Portal",
+    "Contractor Portal",
+    "Public Citizen Portal",
+    "MP Allocation Directory",
+]
+
 st.set_page_config(
-    page_title="InfraAudit | Satellite Verification Platform",
-    page_icon="🛰️",
+    page_title="InfraAudit | National Infrastructure Verification Portal",
+    page_icon="🏛️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed",
 )
 
-# Apply UI Theme
 st.markdown(get_custom_ui_theme(), unsafe_allow_html=True)
 
-# Initialize Storage & Datasets
 generate_all_samples()
 init_db()
 seed_sample_projects()
+seed_case_studies()
 
-# CENTERED PREMIUM HERO HEADER
-st.markdown("""
-<div class="hero-center-container">
-    <div class="hero-pill">🛰️ AI Earth Observation & National Vigilance Engine</div>
-    <h1 class="hero-title-main">
-        🏗️ <span class="hero-title-gradient">InfraAudit</span>
-    </h1>
-    <p class="hero-tagline">
-        Autonomous satellite surveillance pipeline verifying public infrastructure execution, exposing ghost assets, and protecting public treasury funds.
-    </p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(render_masthead(
+    title="InfraAudit",
+    strapline=(
+        "National verification portal for publicly funded infrastructure. Independent satellite "
+        "earth observation, computer vision progress audits and constituency-level fund transparency."
+    ),
+    kicker="Public Infrastructure Vigilance · Earth Observation Verification",
+), unsafe_allow_html=True)
 
-# Navigation (Centered)
-tab_feed, tab_portal, tab_verify, tab_analytics, tab_team = st.tabs([
-    "🌐 Public Surveillance Feed",
-    "🏛️ Govt Portal Sync Gateway",
-    "🔍 Verify New Project",
-    "📊 Civic Audit Analytics",
-    "👥 Team Roles & Architecture"
-])
+page = st.radio("Portal navigation", PAGES, key="nav", horizontal=True, label_visibility="collapsed")
 
-# -------------------------------------------------------------
-# TAB 1: SURVEILLANCE FEED
-# -------------------------------------------------------------
-with tab_feed:
+
+def go_to(destination: str):
+    """Switches the active portal page."""
+    st.session_state["nav"] = destination
+    st.rerun()
+
+
+def budget_label(amount) -> str:
+    """Formats rupee amounts in crore or lakh."""
+    if amount is None:
+        return "Not published"
+    if amount >= 1e7:
+        return f"₹{amount / 1e7:.2f} Cr"
+    return f"₹{amount / 1e5:.2f} L"
+
+
+def render_login(title: str, description: str, role: str, session_key: str, hint: str):
+    """Renders a portal login form and returns True once authenticated."""
+    if st.session_state.get(session_key):
+        header, action = st.columns([4, 1])
+        with header:
+            st.markdown(
+                f'<span class="badge-verified">Signed in</span> &nbsp; '
+                f'<b>{st.session_state[session_key]}</b>',
+                unsafe_allow_html=True,
+            )
+        with action:
+            if st.button("Sign out", key=f"logout_{session_key}", use_container_width=True):
+                st.session_state[session_key] = ""
+                st.rerun()
+        st.markdown("---")
+        return True
+
+    _, panel, _ = st.columns([1, 2, 1])
+    with panel:
+        st.markdown('<div class="login-panel">', unsafe_allow_html=True)
+        st.markdown('<div class="crest">Restricted access</div>', unsafe_allow_html=True)
+        st.markdown(f"#### {title}")
+        st.caption(description)
+        with st.form(f"form_{session_key}"):
+            username = st.text_input("User ID")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Sign in", type="primary", use_container_width=True)
+        if submitted:
+            if authenticate(role, username, password):
+                st.session_state[session_key] = username
+                st.rerun()
+            else:
+                st.error("Access denied. The credentials provided are not recognised.")
+        st.caption(hint)
+        st.markdown("</div>", unsafe_allow_html=True)
+    return False
+
+
+def run_satellite_audit(record: dict, sample_id: str = None, work_order_id: str = "", source_portal: str = ""):
+    """Runs the earth observation audit pipeline and writes the result to the ledger."""
+    with st.status(f"Auditing {record['project_name']}...", expanded=True) as status:
+        st.write("Retrieving temporal satellite passes...")
+        before_path, after_path = fetch_satellite_pair(
+            record["latitude"], record["longitude"], record["start_date"], record["end_date"],
+            sample_id=sample_id,
+        )
+
+        st.write("Running structural footprint change detection...")
+        analysis = analyze_infrastructure_project(
+            before_img_path=before_path,
+            after_img_path=after_path,
+            project_type=record["project_type"],
+            sanctioned_budget=record["sanctioned_budget"],
+            project_name=record["project_name"],
+        )
+
+        st.write("Writing the outcome to the public surveillance ledger...")
+        notes = analysis["reason"]
+        if work_order_id:
+            notes = f"[Work order {work_order_id} | Source: {source_portal}] {notes}"
+        save_project({
+            **record,
+            "verdict": analysis["verdict"],
+            "confidence_score": analysis["confidence_score"],
+            "before_structure_count": analysis["before_structure_count"],
+            "after_structure_count": analysis["after_structure_count"],
+            "built_area_change_pct": analysis["built_area_change_pct"],
+            "audit_notes": notes,
+            "image_before_path": before_path,
+            "image_after_path": after_path,
+            "image_annotated_path": analysis["image_annotated_path"],
+            "heatmap_path": analysis["heatmap_path"],
+            "status": analysis["status"],
+        })
+        status.update(label="Audit complete", state="complete", expanded=False)
+
+    st.markdown(render_verdict_banner(
+        analysis["verdict"],
+        record["project_name"],
+        analysis["reason"],
+        [
+            f"Confidence {analysis['confidence_score']}%",
+            f"Built-up change +{analysis['built_area_change_pct']}%",
+            f"Sanctioned outlay {budget_label(record['sanctioned_budget'])}",
+        ],
+    ), unsafe_allow_html=True)
+    return analysis, before_path, after_path
+
+
+# -------------------------------------------------------------------------
+# Home & overview
+# -------------------------------------------------------------------------
+if page == "Home & Overview":
     stats = get_audit_statistics()
+    mplads = get_mplads_summary()
 
-    # Metric Row
-    k1, k2, k3, k4 = st.columns(4)
-    with k1:
-        st.metric("Total Scrutinized Projects", f"{stats['total_projects']} Contracts")
-    with k2:
-        st.metric("Monitored Public Outlay", f"₹{stats['total_budget']/1e7:.2f} Cr")
-    with k3:
-        st.metric("Flagged Fraud Outlay", f"₹{stats['flagged_budget']/1e7:.2f} Cr", delta=f"{stats['suspicious_count']} Scams Flagged", delta_color="inverse")
-    with k4:
-        st.metric("Fraud Anomaly Rate", f"{stats['fraud_risk_rate']}%", delta_color="off")
+    tiles = st.columns(4)
+    figures = [
+        ("Works scrutinised", f"{stats['total_projects']}", "Contracts in the audit ledger"),
+        ("Public outlay monitored", f"₹{stats['total_budget'] / 1e7:.2f} Cr", "Sanctioned value under review"),
+        ("Capital at risk", f"₹{stats['flagged_budget'] / 1e7:.2f} Cr", f"{stats['suspicious_count']} works flagged"),
+        ("Constituency funds tracked", f"₹{mplads['total_allocated_crore']:,.2f} Cr",
+         f"{mplads['member_count']} constituencies"),
+    ]
+    for column, (label, value, note) in zip(tiles, figures):
+        with column:
+            st.markdown(render_stat_tile(label, value, note), unsafe_allow_html=True)
 
-    st.markdown("---")
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(render_section(
+        "Access routes",
+        "Each stakeholder group enters the platform through its own portal.",
+    ), unsafe_allow_html=True)
 
-    # Search & Category Filter
-    col_s1, col_s2 = st.columns([3, 1])
-    with col_s1:
-        search_query = st.text_input("🔍 Search by project title, state, department, or keyword...", placeholder="e.g., School, Road, Varanasi, Madhya Pradesh...")
-    with col_s2:
-        filter_category = st.selectbox(
-            "Filter Category:",
-            ["All Infrastructure", "🚨 Flagged Scams Only", "✅ Verified Only", "🏫 Schools", "🛣️ Highways", "🏥 Hospitals", "🌉 Bridges"]
-        )
+    route_columns = st.columns(3)
+    routes = [
+        ("Government Vigilance Portal", "Protected access for MoSPI, CAG and vigilance officers. "
+                                        "Payment gatekeeping, satellite audits, contractor credibility and dossiers.",
+         "Government Portal"),
+        ("Contractor Execution Portal", "Protected access for executing agencies. Milestone claims, GST invoices, "
+                                        "geotagged weekly progress and defect liability bonds.", "Contractor Portal"),
+        ("Public Citizen Portal", "Open access for citizens. Anonymous reporting, defect liability claims and the "
+                                  "public surveillance ledger.", "Public Citizen Portal"),
+    ]
+    for column, (title, description, destination) in zip(route_columns, routes):
+        with column:
+            st.markdown(
+                f'<div class="gov-card"><h4>{title}</h4><div class="meta">{description}</div></div>',
+                unsafe_allow_html=True,
+            )
+            if st.button(f"Enter {title.split()[0].lower()} portal", key=f"route_{destination}",
+                         use_container_width=True):
+                go_to(destination)
 
-    projects = get_all_projects()
+    st.markdown(render_section(
+        "Documented execution failures",
+        "Case studies of publicly reported infrastructure delays that motivated this platform.",
+    ), unsafe_allow_html=True)
 
-    if filter_category == "🚨 Flagged Scams Only":
-        projects = [p for p in projects if p["verdict"] == "SUSPICIOUS"]
-    elif filter_category == "✅ Verified Only":
-        projects = [p for p in projects if p["verdict"] == "VERIFIED"]
-    elif filter_category == "🏫 Schools":
-        projects = [p for p in projects if "School" in p["project_type"] or "Education" in p["department"]]
-    elif filter_category == "🛣️ Highways":
-        projects = [p for p in projects if "Road" in p["project_type"]]
-    elif filter_category == "🏥 Hospitals":
-        projects = [p for p in projects if "Hospital" in p["project_type"] or "Health" in p["department"]]
-    elif filter_category == "🌉 Bridges":
-        projects = [p for p in projects if "Bridge" in p["project_type"]]
-
-    if search_query:
-        projects = [
-            p for p in projects
-            if search_query.lower() in p["project_name"].lower()
-            or search_query.lower() in p["location_name"].lower()
-            or search_query.lower() in p["department"].lower()
-        ]
-
-    st.markdown("### 📋 Active Inspection Ledger")
-
-    cols = st.columns(3)
-    for idx, p in enumerate(projects):
-        col = cols[idx % 3]
-
-        with col:
-            verdict = p["verdict"]
-            badge_class = "badge-verified" if verdict == "VERIFIED" else ("badge-progress" if verdict == "IN_PROGRESS" else "badge-suspicious")
-            badge_text = "✅ CONFIRMED BUILT" if verdict == "VERIFIED" else ("🟡 IN PROGRESS" if verdict == "IN_PROGRESS" else "🚨 FLAGGED FRAUD")
-            budget_str = f"₹{p['sanctioned_budget']/1e7:.2f} Cr" if p['sanctioned_budget'] >= 1e7 else f"₹{p['sanctioned_budget']/1e5:.1f} L"
-
-            with st.container(border=True):
-                st.markdown(f"""
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                    <span class="{badge_class}">{badge_text}</span>
-                    <span style="font-weight:700; color:#1e293b; font-size:0.9rem;">{budget_str}</span>
-                </div>
-                """, unsafe_allow_html=True)
-
-                img_path = p.get("image_after_path") or p.get("image_before_path")
-                loaded_img = safe_load_image(img_path)
-                if loaded_img:
-                    st.image(loaded_img, use_container_width=True)
-
-                st.markdown(f"#### {p['project_name']}")
-                st.caption(f"🏛️ **{p['department']}** | 📍 {p['location_name']}")
-
-                st.markdown(f"""
-                <div class="metric-chip-row">
-                    <div class="metric-chip-item">
-                        <div class="metric-chip-val">{p['confidence_score']}%</div>
-                        <div class="metric-chip-lbl">Confidence</div>
-                    </div>
-                    <div class="metric-chip-item">
-                        <div class="metric-chip-val" style="color:#16a34a;">&lt; 3%</div>
-                        <div class="metric-chip-lbl">Cloud Cover</div>
-                    </div>
-                    <div class="metric-chip-item">
-                        <div class="metric-chip-val">+{p['built_area_change_pct']}%</div>
-                        <div class="metric-chip-lbl">Growth</div>
-                    </div>
-                    <div class="metric-chip-item">
-                        <div class="metric-chip-val">{p['after_structure_count']}</div>
-                        <div class="metric-chip-lbl">Structures</div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                st.markdown(f"<div class='audit-callout'>{p['audit_notes']}</div>", unsafe_allow_html=True)
-
-                with st.expander(f"🔍 Satellite Evidence #{p['id']}"):
-                    cb1, cb2 = st.columns(2)
-                    with cb1:
-                        st.caption(f"📅 Baseline ({p['start_date']})")
-                        b_img = safe_load_image(p.get("image_before_path"))
-                        if b_img:
-                            st.image(b_img, use_container_width=True)
-                    with cb2:
-                        st.caption(f"📅 Post-Completion ({p['end_date']})")
-                        a_img = safe_load_image(p.get("image_after_path"))
-                        if a_img:
-                            st.image(a_img, use_container_width=True)
-
-                    dossier_text = generate_audit_dossier(p)
-                    st.download_button(
-                        f"📥 Export Dossier #{p['id']}",
-                        data=dossier_text,
-                        file_name=f"audit_dossier_{p['id']}.md",
-                        mime="text/markdown",
-                        key=f"dl_{p['id']}"
-                    )
-
-# -------------------------------------------------------------
-# TAB 2: GOVERNMENT PORTAL SYNC GATEWAY
-# -------------------------------------------------------------
-with tab_portal:
-    st.markdown("### 🏛️ National Government Portal API Gateway")
-    st.caption("Live integration pipeline connecting to **e-GramSwaraj, PMGSY, PM Gati Shakti, and data.gov.in** API endpoints to ingest claims before financial treasury disbursement.")
-
-    c_p1, c_p2, c_p3 = st.columns([2, 1, 1])
-    with c_p1:
-        portal_filter = st.selectbox(
-            "Select Connected Government Portal:",
-            ["All National Portals (4 Active Feeds)", "e-GramSwaraj (Panchayati Raj)", "PMGSY (Rural Roads)", "PM Gati Shakti Master Plan", "data.gov.in Open Data"]
-        )
-    with c_p2:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        if st.button("🔄 Sync Government Feeds"):
-            st.toast("Synchronized with National Informatics Centre (NIC) Gateway!", icon="✅")
-    with c_p3:
-        st.markdown("<div style='height:32px'></div>", unsafe_allow_html=True)
-        st.markdown("<span style='background:#dcfce7; color:#16a34a; padding:6px 12px; border-radius:20px; font-weight:700; font-size:0.8rem;'>● 4 GOVT APIS CONNECTED</span>", unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("#### 📑 Incoming Completion Claims Awaiting Satellite Audit")
-
-    portal_contracts = get_government_portal_contracts()
-
-    for c in portal_contracts:
+    for study in get_case_studies():
         with st.container(border=True):
-            col_h1, col_h2 = st.columns([3, 1])
-            with col_h1:
-                st.markdown(f"#### 🏛️ {c['project_name']} (`{c['work_order_id']}`)")
-                st.caption(f"📡 **Source:** {c['source_portal']} | 🏢 **Contractor:** {c['contractor_name']} | 📜 **Tender ID:** `{c['tender_id']}`")
-            with col_h2:
-                st.markdown(f"<div style='text-align:right; font-weight:700; font-size:1.1rem; color:#1e293b;'>{c['payment_claimed']}</div>", unsafe_allow_html=True)
-                st.markdown(f"<div style='text-align:right; font-size:0.8rem; color:#64748b;'>Claimed: {c['completion_claimed_date']}</div>", unsafe_allow_html=True)
+            heading, marker = st.columns([4, 1])
+            with heading:
+                st.markdown(f"#### {study['title']}")
+                st.caption(f"{study['location_name']} · {study['asset_type']} · {study['source']}")
+            with marker:
+                st.markdown(
+                    f'<div style="text-align:right"><span class="badge-suspicious">'
+                    f'{study["delay_summary"]}</span></div>',
+                    unsafe_allow_html=True,
+                )
+            st.write(f"**Promise and delay:** {study['promise_and_delay']}")
+            st.write(f"**Human impact:** {study['human_impact']}")
+            if study["sanctioned_budget"]:
+                st.caption(f"Recorded expenditure: {budget_label(study['sanctioned_budget'])}")
 
-            c_info1, c_info2, c_info3 = st.columns([2, 2, 1.2])
-            with c_info1:
-                st.write(f"📍 **Location:** {c['location_name']}")
-                st.write(f"🌐 **GIS Coordinates:** `{c['latitude']:.4f}, {c['longitude']:.4f}`")
-            with c_info2:
-                st.write(f"📅 **Contract Period:** {c['start_date']} to {c['end_date']}")
-                st.write(f"💰 **Sanctioned Outlay:** ₹{c['sanctioned_budget']/1e7:.2f} Crore")
-            with c_info3:
-                st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-                if st.button(f"🛰️ Audit via Satellite", key=f"btn_audit_{c['work_order_id']}", type="primary", use_container_width=True):
-                    with st.status(f"Auditing {c['work_order_id']}...", expanded=True) as status:
-                        st.write("1. 📡 Querying Sentinel-2 & High-Resolution Tile Archive...")
-                        b_path, a_path = fetch_satellite_pair(c['latitude'], c['longitude'], c['start_date'], c['end_date'], sample_id=c['sample_id'])
+# -------------------------------------------------------------------------
+# Government vigilance portal
+# -------------------------------------------------------------------------
+elif page == "Government Portal":
+    st.markdown(render_section(
+        "Government Vigilance Portal",
+        "Ministry of Statistics & Programme Implementation · Comptroller and Auditor General · State vigilance.",
+    ), unsafe_allow_html=True)
 
-                        st.write("2. 🧠 Running structural computer vision footprint detection...")
-                        analysis = analyze_infrastructure_project(
-                            before_img_path=b_path,
-                            after_img_path=a_path,
-                            project_type=c['project_type'],
-                            sanctioned_budget=c['sanctioned_budget'],
-                            project_name=c['project_name']
+    if render_login(
+        title="Vigilance officer sign in",
+        description="Authorised officers of MoSPI, CAG and state vigilance directorates only.",
+        role="government",
+        session_key="gov_user",
+        hint="Demonstration credentials: admin / mospi2026",
+    ):
+        gate_tab, engine_tab, credibility_tab, dossier_tab = st.tabs([
+            "Payment gatekeeper", "Satellite verification engine", "Contractor credibility", "Audit dossiers",
+        ])
+
+        with gate_tab:
+            st.markdown(render_section(
+                "Three-way payment gatekeeper",
+                "A claim is released only when the contractor declaration, the satellite audit and citizen "
+                "oversight agree.",
+            ), unsafe_allow_html=True)
+
+            claims = get_milestone_claims()
+            if not claims:
+                st.info("No contractor milestone claims have been submitted yet.")
+            else:
+                audited = {p["project_name"]: p for p in get_all_projects()}
+                contracts = {c["work_order_id"]: c for c in get_government_portal_contracts()}
+                open_flags = get_whistleblower_reports()
+
+                for claim in claims:
+                    contract = contracts.get(claim["work_order_id"])
+                    project = audited.get(contract["project_name"]) if contract else None
+                    flags = sum(
+                        1 for report in open_flags
+                        if claim["work_order_id"].lower() in report["project_reference"].lower()
+                        and report["status"] == "UNDER_REVIEW"
+                    )
+                    gate = evaluate_payment_gate(claim, project, flags)
+
+                    with st.container(border=True):
+                        heading, decision = st.columns([3, 1])
+                        with heading:
+                            st.markdown(f"#### {claim['work_order_id']} — {claim['milestone']}")
+                            st.caption(
+                                f"{claim['contractor_name']} · GST invoice {claim['gst_invoice_no']} · "
+                                f"claim {budget_label(claim['claim_amount'])}"
+                            )
+                        with decision:
+                            badge = "badge-verified" if gate["cleared"] else "badge-suspicious"
+                            st.markdown(
+                                f'<div style="text-align:right"><span class="{badge}">{gate["decision"]}</span></div>',
+                                unsafe_allow_html=True,
+                            )
+                        for check in gate["checks"]:
+                            mark = "PASS" if check["passed"] else "FAIL"
+                            st.markdown(
+                                f'<div class="audit-callout"><b>{mark} · {check["name"]}</b><br>{check["detail"]}</div>',
+                                unsafe_allow_html=True,
+                            )
+
+        with engine_tab:
+            st.markdown(render_section(
+                "Satellite verification engine",
+                "Audit an incoming completion claim or submit a new work for verification.",
+            ), unsafe_allow_html=True)
+
+            st.markdown("##### Completion claims awaiting audit")
+            for contract in get_government_portal_contracts():
+                with st.container(border=True):
+                    heading, amount = st.columns([3, 1])
+                    with heading:
+                        st.markdown(f"#### {contract['project_name']}")
+                        st.caption(
+                            f"{contract['work_order_id']} · {contract['source_portal']} · "
+                            f"{contract['contractor_name']} · {contract['location_name']}"
+                        )
+                    with amount:
+                        st.markdown(
+                            f'<div style="text-align:right"><b>{contract["payment_claimed"]}</b><br>'
+                            f'<span style="color:#64748B;font-size:0.8rem">Claimed '
+                            f'{contract["completion_claimed_date"]}</span></div>',
+                            unsafe_allow_html=True,
+                        )
+                    if st.button("Run satellite audit", key=f"audit_{contract['work_order_id']}", type="primary"):
+                        run_satellite_audit(
+                            {
+                                "project_name": contract["project_name"],
+                                "department": contract["department"],
+                                "project_type": contract["project_type"],
+                                "location_name": contract["location_name"],
+                                "latitude": contract["latitude"],
+                                "longitude": contract["longitude"],
+                                "sanctioned_budget": contract["sanctioned_budget"],
+                                "start_date": contract["start_date"],
+                                "end_date": contract["end_date"],
+                            },
+                            sample_id=contract["sample_id"],
+                            work_order_id=contract["work_order_id"],
+                            source_portal=contract["source_portal"],
                         )
 
-                        st.write("3. 📑 Logging audit results to public surveillance ledger...")
-                        new_record = {
-                            "project_name": c['project_name'],
-                            "department": c['department'],
-                            "project_type": c['project_type'],
-                            "location_name": c['location_name'],
-                            "latitude": c['latitude'],
-                            "longitude": c['longitude'],
-                            "sanctioned_budget": c['sanctioned_budget'],
-                            "start_date": c['start_date'],
-                            "end_date": c['end_date'],
-                            "verdict": analysis["verdict"],
-                            "confidence_score": analysis["confidence_score"],
-                            "before_structure_count": analysis["before_structure_count"],
-                            "after_structure_count": analysis["after_structure_count"],
-                            "built_area_change_pct": analysis["built_area_change_pct"],
-                            "audit_notes": f"[Govt Work Order: {c['work_order_id']} | Source: {c['source_portal']}] " + analysis["reason"],
-                            "image_before_path": b_path,
-                            "image_after_path": a_path,
-                            "image_annotated_path": analysis["image_annotated_path"],
-                            "heatmap_path": analysis["heatmap_path"],
-                            "status": analysis["status"]
-                        }
-                        save_project(new_record)
-                        status.update(label="✅ Government Claim Audited Successfully!", state="complete", expanded=False)
+            st.markdown("---")
+            st.markdown("##### Verify a new work")
 
-                    # Show Verdict Result
-                    if analysis["verdict"] == "SUSPICIOUS":
-                        st.error(f"🚨 **SUSPICIOUS — {c['project_name']}:** {analysis['reason']} (AI Confidence: {analysis['confidence_score']}%)")
+            samples = {f"{s['name']}": s for s in get_demo_samples_meta()}
+            selected = st.selectbox("Ground-truth preset", ["Custom entry"] + list(samples))
+            preset = samples.get(selected)
+
+            details, map_column = st.columns([1.2, 1])
+            with details:
+                name = st.text_input("Sanction title", value=preset["name"] if preset else "Primary school wing")
+                department = st.text_input(
+                    "Department or ministry",
+                    value=preset["department"] if preset else "Education & School Infrastructure",
+                )
+                asset_type = st.selectbox("Asset category", [
+                    "Building / School", "Road / Highway", "Hospital / Health Center",
+                    "Bridge / Flyover", "Water Tank / Canal",
+                ])
+
+                location_input, geocode_button = st.columns([3, 1])
+                with location_input:
+                    location = st.text_input(
+                        "Location",
+                        value=preset["location"] if preset else "Rampur Sector 4, Varanasi, Uttar Pradesh",
+                    )
+                with geocode_button:
+                    st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                    if st.button("Geocode"):
+                        found_lat, found_lon, _ = geocode_location(location)
+                        st.session_state["v_lat"] = found_lat
+                        st.session_state["v_lon"] = found_lon
+                        st.rerun()
+
+                default_lat = st.session_state.get("v_lat", preset["lat"] if preset else 25.3176)
+                default_lon = st.session_state.get("v_lon", preset["lon"] if preset else 82.9739)
+
+                coord_a, coord_b, coord_c = st.columns([1, 1, 1.2])
+                with coord_a:
+                    latitude = st.number_input("Latitude", value=float(default_lat), format="%.4f")
+                with coord_b:
+                    longitude = st.number_input("Longitude", value=float(default_lon), format="%.4f")
+                with coord_c:
+                    sanctioned = st.number_input(
+                        "Sanctioned budget (₹)",
+                        value=float(preset["budget"] if preset else 15000000.0),
+                        step=1000000.0, format="%.0f",
+                    )
+
+                date_a, date_b = st.columns(2)
+                with date_a:
+                    start = st.date_input(
+                        "Start date",
+                        value=datetime.strptime(preset["start_date"], "%Y-%m-%d").date() if preset else date(2024, 1, 15),
+                    )
+                with date_b:
+                    end = st.date_input(
+                        "Completion date",
+                        value=datetime.strptime(preset["end_date"], "%Y-%m-%d").date() if preset else date(2024, 11, 20),
+                    )
+
+            with map_column:
+                st.markdown("**Site location**")
+                site_map = folium.Map(location=[latitude, longitude], zoom_start=14, tiles="OpenStreetMap")
+                folium.Marker([latitude, longitude], tooltip=name).add_to(site_map)
+                folium.Circle(radius=400, location=[latitude, longitude], color="#0A192F",
+                              fill=True, fill_opacity=0.12).add_to(site_map)
+                st_folium(site_map, height=270, width="100%")
+
+            if st.button("Run verification", type="primary", use_container_width=True):
+                analysis, before_path, after_path = run_satellite_audit(
+                    {
+                        "project_name": name,
+                        "department": department,
+                        "project_type": asset_type,
+                        "location_name": location,
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "sanctioned_budget": sanctioned,
+                        "start_date": str(start),
+                        "end_date": str(end),
+                    },
+                    sample_id=preset["id"] if preset else None,
+                )
+
+                evidence = st.columns(3)
+                captions = [
+                    ("Pre-construction baseline", before_path),
+                    ("Post-completion capture", after_path),
+                    ("Detected asset footprint", analysis["image_annotated_path"]),
+                ]
+                for column, (caption, path) in zip(evidence, captions):
+                    with column:
+                        st.caption(caption)
+                        image = safe_load_image(path)
+                        if image:
+                            st.image(image, use_container_width=True)
+
+        with credibility_tab:
+            st.markdown(render_section(
+                "Contractor Credibility Index",
+                "Share of each executing agency's audited works that were confirmed on the ground.",
+            ), unsafe_allow_html=True)
+
+            index = get_contractor_credibility_index()
+            frame = pd.DataFrame(index)
+            frame["Capital at risk (₹ Cr)"] = (frame["capital_at_risk"] / 1e7).round(2)
+            st.dataframe(
+                frame[["contractor_name", "works", "verified", "flagged", "cci_score", "rating",
+                       "Capital at risk (₹ Cr)"]].rename(columns={
+                           "contractor_name": "Executing agency",
+                           "works": "Works audited",
+                           "verified": "Confirmed",
+                           "flagged": "Flagged",
+                           "cci_score": "CCI score",
+                           "rating": "Rating",
+                       }),
+                use_container_width=True, hide_index=True,
+            )
+
+        with dossier_tab:
+            st.markdown(render_section(
+                "Investigation dossiers",
+                "Export the formal audit record for any work in the ledger.",
+            ), unsafe_allow_html=True)
+
+            for project in get_all_projects():
+                with st.container(border=True):
+                    heading, download = st.columns([3, 1])
+                    with heading:
+                        st.markdown(f"**{project['project_name']}**")
+                        st.caption(
+                            f"{project['department']} · {project['location_name']} · "
+                            f"verdict {project['verdict']}"
+                        )
+                    with download:
+                        st.download_button(
+                            "Download dossier",
+                            data=generate_audit_dossier(project),
+                            file_name=f"audit_dossier_{project['id']}.md",
+                            mime="text/markdown",
+                            key=f"dossier_{project['id']}",
+                            use_container_width=True,
+                        )
+
+# -------------------------------------------------------------------------
+# Contractor execution portal
+# -------------------------------------------------------------------------
+elif page == "Contractor Portal":
+    st.markdown(render_section(
+        "Contractor Execution Portal",
+        "Milestone claims, tax invoices, geotagged weekly progress and defect liability bonds.",
+    ), unsafe_allow_html=True)
+
+    if render_login(
+        title="Contractor sign in",
+        description="Registered executing agencies holding an active government work order.",
+        role="contractor",
+        session_key="contractor_user",
+        hint="Demonstration credentials: contractor / pass123",
+    ):
+        claim_tab, progress_tab, bond_tab, history_tab = st.tabs([
+            "Milestone claim", "Weekly geotagged progress", "Defect liability bond", "My claims",
+        ])
+
+        contracts = {c["work_order_id"]: c for c in get_government_portal_contracts()}
+
+        with claim_tab:
+            st.markdown(render_section(
+                "Submit a milestone claim",
+                "Every claim is held until an independent satellite audit confirms physical execution.",
+            ), unsafe_allow_html=True)
+
+            with st.form("milestone_claim"):
+                work_order = st.selectbox("Work order", list(contracts))
+                contract = contracts[work_order]
+                st.caption(f"{contract['project_name']} · {contract['location_name']}")
+
+                field_a, field_b = st.columns(2)
+                with field_a:
+                    milestone = st.selectbox("Milestone", [
+                        "Stage 1 — Site mobilisation", "Stage 2 — Substructure",
+                        "Stage 3 — Superstructure", "Stage 4 — Completion & handover",
+                    ])
+                    claim_amount = st.number_input("Claim amount (₹)", value=1000000.0, step=100000.0, format="%.0f")
+                with field_b:
+                    gst_invoice = st.text_input("GST invoice number", value="GST/2026/0001")
+                    progress = st.slider("Declared execution (%)", 0, 100, 100)
+
+                geo_a, geo_b = st.columns(2)
+                with geo_a:
+                    claim_lat = st.number_input("Site latitude", value=float(contract["latitude"]), format="%.4f")
+                with geo_b:
+                    claim_lon = st.number_input("Site longitude", value=float(contract["longitude"]), format="%.4f")
+
+                remarks = st.text_area("Remarks")
+                if st.form_submit_button("Submit claim", type="primary"):
+                    submit_milestone_claim({
+                        "work_order_id": work_order,
+                        "contractor_name": contract["contractor_name"],
+                        "milestone": milestone,
+                        "claim_amount": claim_amount,
+                        "gst_invoice_no": gst_invoice,
+                        "progress_pct": float(progress),
+                        "geotag_latitude": claim_lat,
+                        "geotag_longitude": claim_lon,
+                        "remarks": remarks,
+                    })
+                    st.success("Claim submitted and queued for independent satellite verification.")
+
+        with progress_tab:
+            st.markdown(render_section(
+                "Weekly geotagged progress",
+                "Log the current execution position for the running week.",
+            ), unsafe_allow_html=True)
+
+            with st.form("weekly_progress"):
+                work_order = st.selectbox("Work order", list(contracts), key="progress_work_order")
+                contract = contracts[work_order]
+                progress = st.slider("Execution this week (%)", 0, 100, 40, key="weekly_pct")
+                note = st.text_area("Site note", placeholder="Earthwork completed on the northern approach.")
+                if st.form_submit_button("Log progress", type="primary"):
+                    submit_milestone_claim({
+                        "work_order_id": work_order,
+                        "contractor_name": contract["contractor_name"],
+                        "milestone": f"Weekly progress update — {date.today().isoformat()}",
+                        "claim_amount": 0.0,
+                        "gst_invoice_no": "NOT APPLICABLE",
+                        "progress_pct": float(progress),
+                        "geotag_latitude": contract["latitude"],
+                        "geotag_longitude": contract["longitude"],
+                        "remarks": note,
+                        "status": "PROGRESS_LOGGED",
+                    })
+                    st.success("Weekly geotagged progress recorded.")
+
+        with bond_tab:
+            st.markdown(render_section(
+                "Five-year defect liability bond",
+                "Upload the warranty bond covering the defect liability period of a completed asset.",
+            ), unsafe_allow_html=True)
+
+            with st.form("dlp_bond"):
+                work_order = st.selectbox("Work order", list(contracts), key="bond_work_order")
+                contract = contracts[work_order]
+                bond_reference = st.text_input("Bond reference", value="DLP/BOND/2026/001")
+                bond_file = st.file_uploader("Bond document (PDF)", type=["pdf"])
+                if st.form_submit_button("Register bond", type="primary"):
+                    if bond_file is None:
+                        st.error("Attach the signed bond document before registering.")
                     else:
-                        st.success(f"✅ **VERIFIED — {c['project_name']}:** {analysis['reason']} (AI Confidence: {analysis['confidence_score']}%)")
+                        submit_milestone_claim({
+                            "work_order_id": work_order,
+                            "contractor_name": contract["contractor_name"],
+                            "milestone": "Defect liability bond registration",
+                            "claim_amount": 0.0,
+                            "gst_invoice_no": "NOT APPLICABLE",
+                            "progress_pct": 100.0,
+                            "geotag_latitude": contract["latitude"],
+                            "geotag_longitude": contract["longitude"],
+                            "dlp_bond_reference": bond_reference,
+                            "remarks": f"Bond document {bond_file.name} registered for a five-year liability period.",
+                            "status": "BOND_REGISTERED",
+                        })
+                        st.success(f"Bond {bond_reference} registered for a five-year defect liability period.")
 
-# -------------------------------------------------------------
-# TAB 3: VERIFY NEW PROJECT
-# -------------------------------------------------------------
-with tab_verify:
-    st.markdown("### 🔍 Initiate Satellite Verification")
-    st.caption("Submit project details to retrieve temporal Earth Observation passes and execute AI change detection.")
+        with history_tab:
+            submissions = get_milestone_claims()
+            if not submissions:
+                st.info("No submissions recorded yet.")
+            else:
+                frame = pd.DataFrame(submissions)
+                frame["Claim (₹ Cr)"] = (frame["claim_amount"] / 1e7).round(3)
+                st.dataframe(
+                    frame[["created_at", "work_order_id", "milestone", "gst_invoice_no",
+                           "progress_pct", "Claim (₹ Cr)", "status"]].rename(columns={
+                               "created_at": "Submitted",
+                               "work_order_id": "Work order",
+                               "milestone": "Milestone",
+                               "gst_invoice_no": "GST invoice",
+                               "progress_pct": "Declared %",
+                               "status": "Status",
+                           }),
+                    use_container_width=True, hide_index=True,
+                )
 
-    demo_samples = get_demo_samples_meta()
-    demo_dict = {f"{'✅' if s['expected_verdict']=='VERIFIED' else '🔴'} {s['name']}": s for s in demo_samples}
+# -------------------------------------------------------------------------
+# Public citizen portal
+# -------------------------------------------------------------------------
+elif page == "Public Citizen Portal":
+    st.markdown(render_section(
+        "Public Citizen Portal",
+        "Open to every citizen. No registration is required to report a ghost asset or a defect.",
+    ), unsafe_allow_html=True)
 
-    selected_demo_key = st.selectbox(
-        "⚡ Quick Test with Ground Truth Presets:",
-        ["-- Custom Project Input --"] + list(demo_dict.keys())
+    report_tab, warranty_tab, ledger_tab = st.tabs([
+        "Anonymous report", "Defect liability claim", "Public surveillance ledger",
+    ])
+
+    with report_tab:
+        st.markdown(render_section(
+            "Report a suspected ghost asset",
+            "Reports are recorded anonymously and block payment release on the referenced work order.",
+        ), unsafe_allow_html=True)
+
+        with st.form("whistleblower"):
+            project_reference = st.text_input("Project or work order reference", placeholder="PMGSY/MP/2024/RD-4102")
+            location = st.text_input("Location", placeholder="Village, district, state")
+            category = st.selectbox("Nature of the complaint", [
+                "Asset does not exist", "Substandard construction", "Work abandoned midway",
+                "Completion falsely certified", "Other irregularity",
+            ])
+            description = st.text_area("What did you observe?")
+            if st.form_submit_button("Lodge report", type="primary"):
+                if not (project_reference and location and description):
+                    st.error("Provide the work reference, the location and a description.")
+                else:
+                    reference = submit_whistleblower_report({
+                        "project_reference": project_reference,
+                        "location_name": location,
+                        "category": category,
+                        "description": description,
+                    })
+                    st.success(f"Report lodged anonymously. Tracking reference: {reference}")
+
+    with warranty_tab:
+        st.markdown(render_section(
+            "Five-year defect liability claim",
+            "Public assets carry a five-year contractor warranty. Report defects within that window.",
+        ), unsafe_allow_html=True)
+
+        with st.form("warranty"):
+            asset_name = st.text_input("Asset", placeholder="Bitumen Highway Link Road 12B")
+            location = st.text_input("Location", placeholder="Village, district, state", key="dlp_location")
+            defect_type = st.selectbox("Defect", [
+                "Potholes and surface failure", "Structural cracking", "Drainage failure",
+                "Collapsed or missing railing", "Other defect",
+            ])
+            commissioned_on = st.date_input("Asset commissioned on", value=date(2024, 10, 15))
+            description = st.text_area("Describe the defect", key="dlp_description")
+            if st.form_submit_button("Lodge claim", type="primary"):
+                if not (asset_name and location and description):
+                    st.error("Provide the asset, the location and a description of the defect.")
+                else:
+                    within_dlp = (date.today() - commissioned_on).days <= 5 * 365
+                    reference = submit_warranty_claim({
+                        "asset_name": asset_name,
+                        "location_name": location,
+                        "defect_type": defect_type,
+                        "commissioned_on": str(commissioned_on),
+                        "within_dlp": within_dlp,
+                        "description": description,
+                    })
+                    if within_dlp:
+                        st.success(
+                            f"Claim lodged within the defect liability period. Tracking reference: {reference}"
+                        )
+                    else:
+                        st.warning(
+                            f"Recorded as reference {reference}, but the asset is beyond its five-year "
+                            "defect liability period."
+                        )
+
+    with ledger_tab:
+        st.markdown(render_section(
+            "Public surveillance ledger",
+            "Every audited work, with its satellite evidence and verdict.",
+        ), unsafe_allow_html=True)
+
+        search_column, filter_column = st.columns([3, 1])
+        with search_column:
+            query = st.text_input("Search by work, location or department", placeholder="School, Varanasi, PWD")
+        with filter_column:
+            verdict_filter = st.selectbox("Verdict", ["All", "Flagged", "Confirmed", "In progress"])
+
+        projects = get_all_projects()
+        verdict_map = {"Flagged": "SUSPICIOUS", "Confirmed": "VERIFIED", "In progress": "IN_PROGRESS"}
+        if verdict_filter in verdict_map:
+            projects = [p for p in projects if p["verdict"] == verdict_map[verdict_filter]]
+        if query:
+            needle = query.lower()
+            projects = [
+                p for p in projects
+                if needle in p["project_name"].lower()
+                or needle in p["location_name"].lower()
+                or needle in p["department"].lower()
+            ]
+
+        columns = st.columns(3)
+        for index, project in enumerate(projects):
+            with columns[index % 3]:
+                with st.container(border=True):
+                    badge = {
+                        "VERIFIED": ("badge-verified", "Confirmed built"),
+                        "IN_PROGRESS": ("badge-progress", "In progress"),
+                    }.get(project["verdict"], ("badge-suspicious", "Flagged"))
+                    st.markdown(
+                        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                        f'<span class="{badge[0]}">{badge[1]}</span>'
+                        f'<b>{budget_label(project["sanctioned_budget"])}</b></div>',
+                        unsafe_allow_html=True,
+                    )
+                    image = safe_load_image(project.get("image_after_path") or project.get("image_before_path"))
+                    if image:
+                        st.image(image, use_container_width=True)
+                    st.markdown(f"#### {project['project_name']}")
+                    st.caption(f"{project['department']} · {project['location_name']}")
+                    st.markdown(f"""
+                    <div class="metric-chip-row">
+                        <div class="metric-chip-item">
+                            <div class="metric-chip-val">{project['confidence_score']}%</div>
+                            <div class="metric-chip-lbl">Confidence</div>
+                        </div>
+                        <div class="metric-chip-item">
+                            <div class="metric-chip-val">+{project['built_area_change_pct']}%</div>
+                            <div class="metric-chip-lbl">Built-up change</div>
+                        </div>
+                        <div class="metric-chip-item">
+                            <div class="metric-chip-val">{project['after_structure_count']}</div>
+                            <div class="metric-chip-lbl">Structures</div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div class='audit-callout'>{project['audit_notes']}</div>", unsafe_allow_html=True)
+
+                    with st.expander("Satellite evidence"):
+                        before_column, after_column = st.columns(2)
+                        with before_column:
+                            st.caption(f"Baseline {project['start_date']}")
+                            before_image = safe_load_image(project.get("image_before_path"))
+                            if before_image:
+                                st.image(before_image, use_container_width=True)
+                        with after_column:
+                            st.caption(f"Post-completion {project['end_date']}")
+                            after_image = safe_load_image(project.get("image_after_path"))
+                            if after_image:
+                                st.image(after_image, use_container_width=True)
+
+        st.markdown("---")
+        st.markdown("##### Citizen submissions on record")
+        submission_a, submission_b = st.columns(2)
+        with submission_a:
+            reports = get_whistleblower_reports()
+            st.caption(f"Anonymous reports: {len(reports)}")
+            if reports:
+                st.dataframe(
+                    pd.DataFrame(reports)[["reference_code", "project_reference", "category", "status"]],
+                    use_container_width=True, hide_index=True,
+                )
+        with submission_b:
+            claims = get_warranty_claims()
+            st.caption(f"Defect liability claims: {len(claims)}")
+            if claims:
+                st.dataframe(
+                    pd.DataFrame(claims)[["reference_code", "asset_name", "defect_type", "status"]],
+                    use_container_width=True, hide_index=True,
+                )
+
+# -------------------------------------------------------------------------
+# MP allocation directory
+# -------------------------------------------------------------------------
+elif page == "MP Allocation Directory":
+    summary = get_mplads_summary()
+    st.markdown(render_section(
+        "Members of Parliament Local Area Development allocation register",
+        summary["source"],
+    ), unsafe_allow_html=True)
+
+    tiles = st.columns(3)
+    figures = [
+        ("Constituencies on record", f"{summary['member_count']}", "Lok Sabha seats"),
+        ("Total allocated", f"₹{summary['total_allocated_crore']:,.2f} Cr", "Across all constituencies"),
+        ("States and union territories", f"{summary['state_count']}", "Covered by the register"),
+    ]
+    for column, (label, value, note) in zip(tiles, figures):
+        with column:
+            st.markdown(render_stat_tile(label, value, note), unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    search_column, state_column = st.columns([3, 1.4])
+    with search_column:
+        query = st.text_input("Search by member, constituency or state",
+                              placeholder="Narendra Modi, Varanasi, Kerala")
+    with state_column:
+        state = st.selectbox("State or union territory", ["All"] + summary["states"])
+
+    members = search_mp_allocations(query, "" if state == "All" else state)
+    frame = pd.DataFrame(members)
+    frame["Allocated (₹ Cr)"] = (frame["allocated_amount"] / 1e7).round(4)
+    st.caption(f"{len(members)} of {summary['member_count']} constituencies shown.")
+    st.dataframe(
+        frame[["sr_no", "mp_name", "constituency", "state", "Allocated (₹ Cr)"]].rename(columns={
+            "sr_no": "Sr. no.",
+            "mp_name": "Member of Parliament",
+            "constituency": "Constituency",
+            "state": "State / UT",
+        }),
+        use_container_width=True, hide_index=True, height=430,
     )
 
-    sample_data = demo_dict.get(selected_demo_key, None)
+    st.markdown(render_section("Allocation by state", "Total constituency development funds per state."),
+                unsafe_allow_html=True)
+    totals = pd.DataFrame(get_state_allocation_totals())
+    totals["allocated_crore"] = (totals["allocated_amount"] / 1e7).round(2)
+    chart = px.bar(
+        totals.sort_values("allocated_crore"),
+        x="allocated_crore", y="state", orientation="h",
+        labels={"allocated_crore": "Allocated (₹ Cr)", "state": ""},
+        color_discrete_sequence=["#0A192F"],
+    )
+    chart.update_layout(height=760, plot_bgcolor="#FFFFFF", paper_bgcolor="#FFFFFF", margin=dict(l=0, r=0, t=10, b=0))
+    st.plotly_chart(chart, use_container_width=True)
 
-    def_name = sample_data["name"] if sample_data else "Modern Primary School Wing"
-    def_dept = sample_data["department"] if sample_data else "Education & School Infrastructure"
-    def_type = sample_data["type"] if sample_data else "Building / School"
-    def_loc = sample_data["location"] if sample_data else "Rampur Sector 4, Varanasi, Uttar Pradesh"
-    def_lat = sample_data["lat"] if sample_data else 25.3176
-    def_lon = sample_data["lon"] if sample_data else 82.9739
-    def_budget = sample_data["budget"] if sample_data else 15000000.0
-    def_start = datetime.strptime(sample_data["start_date"], "%Y-%m-%d").date() if sample_data else date(2024, 1, 15)
-    def_end = datetime.strptime(sample_data["end_date"], "%Y-%m-%d").date() if sample_data else date(2024, 11, 20)
-    sample_id = sample_data["id"] if sample_data else None
-
-    col_v1, col_v2 = st.columns([1.2, 1])
-    with col_v1:
-        v_name = st.text_input("Project / Sanction Title", value=def_name)
-        v_dept = st.text_input("Department / Ministry", value=def_dept)
-        v_type = st.selectbox("Asset Category", ["Building / School", "Road / Highway", "Hospital / Health Center", "Bridge / Flyover", "Water Tank / Canal"], index=0)
-
-        cv_loc1, cv_loc2 = st.columns([3, 1])
-        with cv_loc1:
-            v_loc = st.text_input("Location Name", value=def_loc)
-        with cv_loc2:
-            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-            if st.button("📍 Geocode"):
-                glat, glon, _ = geocode_location(v_loc)
-                st.session_state["v_lat"] = glat
-                st.session_state["v_lon"] = glon
-                st.rerun()
-
-        c_lat = st.session_state.get("v_lat", def_lat)
-        c_lon = st.session_state.get("v_lon", def_lon)
-
-        cv_c1, cv_c2, cv_c3 = st.columns([1, 1, 1.2])
-        with cv_c1:
-            in_lat = st.number_input("Latitude", value=float(c_lat), format="%.4f")
-        with cv_c2:
-            in_lon = st.number_input("Longitude", value=float(c_lon), format="%.4f")
-        with cv_c3:
-            in_budget = st.number_input("Sanction Budget (₹)", value=float(def_budget), step=1000000.0, format="%.0f")
-
-        cv_d1, cv_d2 = st.columns(2)
-        with cv_d1:
-            in_start = st.date_input("Start Date", value=def_start)
-        with cv_d2:
-            in_end = st.date_input("Completion Date", value=def_end)
-
-    with col_v2:
-        st.markdown("**🗺️ Geographic Coordinates Map**")
-        m = folium.Map(location=[in_lat, in_lon], zoom_start=14, tiles="OpenStreetMap")
-        folium.Marker([in_lat, in_lon], tooltip=v_name, icon=folium.Icon(color="blue", icon="info-sign")).add_to(m)
-        folium.Circle(radius=400, location=[in_lat, in_lon], color="#2563eb", fill=True, fill_opacity=0.15).add_to(m)
-        st_folium(m, height=270, width="100%")
-
-    st.markdown("---")
-    if st.button("🚀 Run Satellite AI Verification", type="primary", use_container_width=True):
-        with st.status("🛰️ Executing Verification Protocol...", expanded=True) as status:
-            st.write("1. 📡 Downloading temporal satellite image passes...")
-            b_path, a_path = fetch_satellite_pair(in_lat, in_lon, str(in_start), str(in_end), sample_id=sample_id)
-
-            st.write("2. 🧠 Running computer vision structural footprint analysis...")
-            analysis = analyze_infrastructure_project(
-                before_img_path=b_path,
-                after_img_path=a_path,
-                project_type=v_type,
-                sanctioned_budget=in_budget,
-                project_name=v_name
-            )
-
-            st.write("3. 📑 Logging audit results to persistent ledger...")
-            new_record = {
-                "project_name": v_name,
-                "department": v_dept,
-                "project_type": v_type,
-                "location_name": v_loc,
-                "latitude": in_lat,
-                "longitude": in_lon,
-                "sanctioned_budget": in_budget,
-                "start_date": str(in_start),
-                "end_date": str(in_end),
-                "verdict": analysis["verdict"],
-                "confidence_score": analysis["confidence_score"],
-                "before_structure_count": analysis["before_structure_count"],
-                "after_structure_count": analysis["after_structure_count"],
-                "built_area_change_pct": analysis["built_area_change_pct"],
-                "audit_notes": analysis["reason"],
-                "image_before_path": b_path,
-                "image_after_path": a_path,
-                "image_annotated_path": analysis["image_annotated_path"],
-                "heatmap_path": analysis["heatmap_path"],
-                "status": analysis["status"]
-            }
-            save_project(new_record)
-            status.update(label="✅ Project Audited Successfully!", state="complete", expanded=False)
-
-        # Show Verdict Result
-        if analysis["verdict"] == "SUSPICIOUS":
-            st.error(f"🚨 **SUSPICIOUS — {v_name}:** {analysis['reason']} (AI Confidence: {analysis['confidence_score']}%)")
-        else:
-            st.success(f"✅ **VERIFIED — {v_name}:** {analysis['reason']} (AI Confidence: {analysis['confidence_score']}%)")
-
-        # Visual Comparison Section
-        st.markdown("### 🛰️ Satellite Computer Vision Diagnostics")
-        col_im1, col_im2, col_im3 = st.columns(3)
-        with col_im1:
-            st.caption("📅 Pre-Construction Baseline")
-            b_diag = safe_load_image(b_path)
-            if b_diag:
-                st.image(b_diag, use_container_width=True)
-        with col_im2:
-            st.caption("📅 Post-Completion Capture")
-            a_diag = safe_load_image(a_path)
-            if a_diag:
-                st.image(a_diag, use_container_width=True)
-        with col_im3:
-            st.caption("🤖 AI Asset Footprint Detection")
-            ann_diag = safe_load_image(analysis["image_annotated_path"])
-            if ann_diag:
-                st.image(ann_diag, use_container_width=True)
-
-# -------------------------------------------------------------
-# TAB 4: AUDIT ANALYTICS
-# -------------------------------------------------------------
-with tab_analytics:
-    st.markdown("### 📊 Public Vigilance & Financial Analytics")
-    all_p = get_all_projects()
-    if all_p:
-        df = pd.DataFrame(all_p)
-        c_ch1, c_ch2 = st.columns(2)
-        with c_ch1:
-            st.markdown("#### 🎯 Verdict Distribution")
-            fig_v = px.pie(
-                df,
-                names="verdict",
-                color="verdict",
-                color_discrete_map={"VERIFIED": "#16a34a", "SUSPICIOUS": "#dc2626", "IN_PROGRESS": "#f59e0b"},
-                hole=0.45
-            )
-            st.plotly_chart(fig_v, use_container_width=True)
-
-        with c_ch2:
-            st.markdown("#### 🏛️ Outlay at Risk by Department")
-            df["budget_cr"] = df["sanctioned_budget"] / 1e7
-            fig_d = px.bar(
-                df,
-                x="budget_cr",
-                y="department",
-                color="verdict",
-                orientation="h",
-                color_discrete_map={"VERIFIED": "#16a34a", "SUSPICIOUS": "#dc2626", "IN_PROGRESS": "#f59e0b"}
-            )
-            st.plotly_chart(fig_d, use_container_width=True)
-
-# -------------------------------------------------------------
-# TAB 5: TEAM ROLES & ARCHITECTURE
-# -------------------------------------------------------------
-with tab_team:
-    st.markdown("###  Team Roles")
-    ct1, ct2 = st.columns(2)
-    with ct1:
-        st.markdown("""
-        - **Saba Qadeer (Satellite & Geocoding):** Fetches Sentinel & Esri tiles across target construction dates.
-        - **Shifa Maheen (AI & Computer Vision):** Runs structural edge & footprint change detection.
-        
-        """)
-    with ct2:
-        st.markdown("""
-        - **Saniya Khatoon (UI & UX Specialist):** Dashboard, dynamic card feed.
-        - **Alishah Khan(Integration & Vigilance):** Manages SQLite ledger & legal audit dossiers.
-        """)
-
-st.markdown("---")
-st.markdown("<p style='text-align:center; color:#94a3b8;'>🏗️ <b>InfraAudit</b> | Built for Civic Integrity & Anti-Corruption Audits</p>", unsafe_allow_html=True)
+st.markdown(
+    '<div class="gov-footer">InfraAudit · Independent verification of publicly funded infrastructure</div>',
+    unsafe_allow_html=True,
+)

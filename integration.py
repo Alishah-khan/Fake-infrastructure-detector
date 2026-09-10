@@ -1,16 +1,19 @@
 """
 Module: System Integration & Database Ledger
-Author: Member 4 (Integration & System Architecture Lead)
 
-Handles SQLite database persistence, aggregated vigilance KPIs, and formal investigation dossiers.
+Handles SQLite persistence for the audit ledger, contractor milestone claims,
+citizen submissions, the MPLADS constituency allocation register, and the
+formal investigation dossiers exported by the vigilance portal.
 """
 
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "data" / "projects.db"
+MPLADS_PATH = BASE_DIR / "data" / "mplads_543_mps.json"
 
 
 def get_connection():
@@ -49,6 +52,65 @@ def init_db():
         heatmap_path TEXT,
         status TEXT DEFAULT 'AUDITED',
         created_at TEXT NOT NULL
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS milestone_claims (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        work_order_id TEXT NOT NULL,
+        contractor_name TEXT NOT NULL,
+        milestone TEXT NOT NULL,
+        claim_amount REAL NOT NULL,
+        gst_invoice_no TEXT NOT NULL,
+        progress_pct REAL NOT NULL,
+        geotag_latitude REAL,
+        geotag_longitude REAL,
+        dlp_bond_reference TEXT,
+        remarks TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING_SATELLITE_AUDIT',
+        created_at TEXT NOT NULL
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS whistleblower_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_code TEXT NOT NULL,
+        project_reference TEXT NOT NULL,
+        location_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'UNDER_REVIEW',
+        created_at TEXT NOT NULL
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS warranty_claims (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_code TEXT NOT NULL,
+        asset_name TEXT NOT NULL,
+        location_name TEXT NOT NULL,
+        defect_type TEXT NOT NULL,
+        commissioned_on TEXT NOT NULL,
+        within_dlp INTEGER NOT NULL,
+        description TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'LODGED',
+        created_at TEXT NOT NULL
+    )
+    """)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS case_studies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        location_name TEXT NOT NULL,
+        state TEXT NOT NULL,
+        asset_type TEXT NOT NULL,
+        sanctioned_budget REAL,
+        delay_summary TEXT NOT NULL,
+        promise_and_delay TEXT NOT NULL,
+        human_impact TEXT NOT NULL,
+        latitude REAL,
+        longitude REAL,
+        source TEXT NOT NULL
     )
     """)
     conn.commit()
@@ -412,3 +474,384 @@ def get_government_portal_contracts():
             "sample_id": "verified_bridge"
         }
     ]
+
+
+# -------------------------------------------------------------------------
+# MPLADS constituency allocation register
+# -------------------------------------------------------------------------
+
+_MPLADS_CACHE = None
+
+
+def load_mp_allocations() -> dict:
+    """Loads the official MPLADS allocation register for all Lok Sabha constituencies."""
+    global _MPLADS_CACHE
+    if _MPLADS_CACHE is None:
+        with open(MPLADS_PATH, encoding="utf-8") as handle:
+            _MPLADS_CACHE = json.load(handle)
+    return _MPLADS_CACHE
+
+
+def get_mplads_summary() -> dict:
+    """Returns headline figures for the allocation register."""
+    register = load_mp_allocations()
+    members = register["members"]
+    states = sorted({m["state"] for m in members})
+    return {
+        "member_count": register["member_count"],
+        "total_allocated_amount": register["total_allocated_amount"],
+        "total_allocated_crore": register["total_allocated_crore"],
+        "state_count": len(states),
+        "states": states,
+        "source": register["source"],
+    }
+
+
+def search_mp_allocations(query: str = "", state: str = "") -> list:
+    """Filters the allocation register by member name, constituency or state."""
+    members = load_mp_allocations()["members"]
+    if state:
+        members = [m for m in members if m["state"] == state]
+    if query:
+        needle = query.strip().lower()
+        members = [
+            m for m in members
+            if needle in m["mp_name"].lower()
+            or needle in m["constituency"].lower()
+            or needle in m["state"].lower()
+        ]
+    return members
+
+
+def get_state_allocation_totals() -> list:
+    """Aggregates allocated funds per state, highest first."""
+    totals = {}
+    for member in load_mp_allocations()["members"]:
+        entry = totals.setdefault(member["state"], {"state": member["state"], "members": 0, "allocated_amount": 0.0})
+        entry["members"] += 1
+        entry["allocated_amount"] += member["allocated_amount"] or 0.0
+    return sorted(totals.values(), key=lambda e: e["allocated_amount"], reverse=True)
+
+
+# -------------------------------------------------------------------------
+# Documented infrastructure failure case studies
+# -------------------------------------------------------------------------
+
+CASE_STUDIES = [
+    {
+        "title": "Defunct Biju Setu Bridge Project",
+        "location_name": "Jajpur District, Odisha",
+        "state": "Odisha",
+        "asset_type": "Bridge",
+        "sanctioned_budget": 110000000.0,
+        "delay_summary": "₹11 crore sunk cost, structure abandoned",
+        "promise_and_delay": (
+            "Constructed at an expense of ₹11 crore under the Biju Setu scheme, the bridge structure "
+            "stands abruptly abandoned without functional approach roads or structural continuity."
+        ),
+        "human_impact": (
+            "Villagers are forced into a 15 km detour to cover a straight-line distance of 100 metres, "
+            "disrupting daily commerce and emergency transit."
+        ),
+        "latitude": 20.8410,
+        "longitude": 86.3340,
+        "source": "OdishaTV report, 04 August 2026",
+    },
+    {
+        "title": "Biju Setu Bridge Execution Delay",
+        "location_name": "Ganjam District, Odisha",
+        "state": "Odisha",
+        "asset_type": "Bridge",
+        "sanctioned_budget": None,
+        "delay_summary": "Four years past completion deadline",
+        "promise_and_delay": (
+            "Meant to deliver essential river crossing connectivity, the project has stalled four years "
+            "past its completion deadline due to uncoordinated execution."
+        ),
+        "human_impact": (
+            "Schoolchildren and daily workers wade through hazardous riverbeds and muddy tracks on "
+            "two-wheelers, risking their lives to meet basic needs."
+        ),
+        "latitude": 19.3860,
+        "longitude": 84.8800,
+        "source": "OdishaTV report, 01 September 2026",
+    },
+    {
+        "title": "Kiratpur-Manali National Highway (NH-21)",
+        "location_name": "Mandi & Kullu Districts, Himachal Pradesh",
+        "state": "Himachal Pradesh",
+        "asset_type": "Highway",
+        "sanctioned_budget": None,
+        "delay_summary": "Over five years behind target",
+        "promise_and_delay": (
+            "Signed in August 2017 with an original completion target of September 2021. The prolonged "
+            "delay forced the Himachal Pradesh High Court to summon the concessionaire's managing director."
+        ),
+        "human_impact": (
+            "Damaged, incomplete stretches have subjected travellers and tourists to extreme hardship for "
+            "over five years, hampering the regional tourism economy."
+        ),
+        "latitude": 31.7080,
+        "longitude": 76.9310,
+        "source": "Himachal Pradesh High Court proceedings, May 2026",
+    },
+    {
+        "title": "Banjar Hospital Expansion Project",
+        "location_name": "Banjar, Kullu District, Himachal Pradesh",
+        "state": "Himachal Pradesh",
+        "asset_type": "Hospital",
+        "sanctioned_budget": None,
+        "delay_summary": "Delayed for five years and counting",
+        "promise_and_delay": (
+            "Intended to expand local healthcare capacity from 50 to 100 beds. Although 85% of structural "
+            "framing is up, roofing and interior finishing remain completely incomplete."
+        ),
+        "human_impact": (
+            "Patients rely on an overcrowded, cracked facility or travel 50-60 km to regional medical "
+            "centres in Kullu or Shimla for critical care."
+        ),
+        "latitude": 31.6360,
+        "longitude": 77.3390,
+        "source": "Press report, March 2026",
+    },
+    {
+        "title": "Brazloo Bridge Bypass (NH-444)",
+        "location_name": "Kulgam District, Jammu & Kashmir",
+        "state": "Jammu And Kashmir",
+        "asset_type": "Bridge",
+        "sanctioned_budget": None,
+        "delay_summary": "Missed the April 2026 completion target",
+        "promise_and_delay": (
+            "Originally sanctioned in 2017 and retendered in 2022 with an April 2026 completion target. "
+            "Official claims of 95% completion contrast with ongoing real-world bottlenecks."
+        ),
+        "human_impact": (
+            "Commuters face daily gridlock on the narrow existing bridge, delaying transit and "
+            "compromising emergency patient transport."
+        ),
+        "latitude": 33.6400,
+        "longitude": 75.0190,
+        "source": "Daily Excelsior report, May 2026",
+    },
+]
+
+
+def seed_case_studies():
+    """Seeds the documented infrastructure failure case studies."""
+    init_db()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as cnt FROM case_studies")
+    if cursor.fetchone()["cnt"] == 0:
+        for study in CASE_STUDIES:
+            cursor.execute("""
+            INSERT INTO case_studies (
+                title, location_name, state, asset_type, sanctioned_budget,
+                delay_summary, promise_and_delay, human_impact, latitude, longitude, source
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                study["title"], study["location_name"], study["state"], study["asset_type"],
+                study["sanctioned_budget"], study["delay_summary"], study["promise_and_delay"],
+                study["human_impact"], study["latitude"], study["longitude"], study["source"]
+            ))
+        conn.commit()
+    conn.close()
+
+
+def get_case_studies() -> list:
+    """Retrieves the seeded infrastructure failure case studies."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM case_studies ORDER BY id")
+    studies = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return studies
+
+
+# -------------------------------------------------------------------------
+# Contractor execution portal
+# -------------------------------------------------------------------------
+
+def submit_milestone_claim(claim: dict) -> int:
+    """Records a contractor milestone claim awaiting independent satellite audit."""
+    init_db()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT INTO milestone_claims (
+        work_order_id, contractor_name, milestone, claim_amount, gst_invoice_no,
+        progress_pct, geotag_latitude, geotag_longitude, dlp_bond_reference,
+        remarks, status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        claim["work_order_id"], claim["contractor_name"], claim["milestone"],
+        claim["claim_amount"], claim["gst_invoice_no"], claim["progress_pct"],
+        claim.get("geotag_latitude"), claim.get("geotag_longitude"),
+        claim.get("dlp_bond_reference", ""), claim.get("remarks", ""),
+        claim.get("status", "PENDING_SATELLITE_AUDIT"),
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    claim_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return claim_id
+
+
+def get_milestone_claims(contractor_name: str = "") -> list:
+    """Retrieves milestone claims, optionally scoped to one contractor."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if contractor_name:
+        cursor.execute("SELECT * FROM milestone_claims WHERE contractor_name = ? ORDER BY id DESC", (contractor_name,))
+    else:
+        cursor.execute("SELECT * FROM milestone_claims ORDER BY id DESC")
+    claims = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return claims
+
+
+def get_contractor_credibility_index() -> list:
+    """Scores contractors on the share of their audited works confirmed on the ground."""
+    scores = {}
+    for contract in get_government_portal_contracts():
+        scores[contract["contractor_name"]] = {
+            "contractor_name": contract["contractor_name"],
+            "works": 0,
+            "verified": 0,
+            "flagged": 0,
+            "capital_at_risk": 0.0,
+        }
+
+    audited = {p["project_name"]: p for p in get_all_projects()}
+    for contract in get_government_portal_contracts():
+        entry = scores[contract["contractor_name"]]
+        project = audited.get(contract["project_name"])
+        if project is None:
+            continue
+        entry["works"] += 1
+        if project["verdict"] == "VERIFIED":
+            entry["verified"] += 1
+        elif project["verdict"] == "SUSPICIOUS":
+            entry["flagged"] += 1
+            entry["capital_at_risk"] += project["sanctioned_budget"]
+
+    for entry in scores.values():
+        entry["cci_score"] = round(entry["verified"] / entry["works"] * 100, 1) if entry["works"] else None
+        if entry["cci_score"] is None:
+            entry["rating"] = "NOT RATED"
+        elif entry["cci_score"] >= 80:
+            entry["rating"] = "RELIABLE"
+        elif entry["cci_score"] >= 50:
+            entry["rating"] = "WATCHLIST"
+        else:
+            entry["rating"] = "HIGH RISK"
+
+    return sorted(scores.values(), key=lambda e: (e["cci_score"] is None, -(e["cci_score"] or 0)))
+
+
+# -------------------------------------------------------------------------
+# Public citizen portal
+# -------------------------------------------------------------------------
+
+def _reference_code(prefix: str) -> str:
+    return f"{prefix}-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+
+def submit_whistleblower_report(report: dict) -> str:
+    """Lodges an anonymous citizen report and returns its tracking reference."""
+    init_db()
+    reference = _reference_code("WB")
+    conn = get_connection()
+    conn.execute("""
+    INSERT INTO whistleblower_reports (
+        reference_code, project_reference, location_name, category, description, status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        reference, report["project_reference"], report["location_name"], report["category"],
+        report["description"], "UNDER_REVIEW", datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    conn.commit()
+    conn.close()
+    return reference
+
+
+def get_whistleblower_reports() -> list:
+    """Retrieves lodged citizen reports."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM whistleblower_reports ORDER BY id DESC")
+    reports = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return reports
+
+
+def submit_warranty_claim(claim: dict) -> str:
+    """Lodges a defect liability period claim and returns its tracking reference."""
+    init_db()
+    reference = _reference_code("DLP")
+    conn = get_connection()
+    conn.execute("""
+    INSERT INTO warranty_claims (
+        reference_code, asset_name, location_name, defect_type, commissioned_on,
+        within_dlp, description, status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        reference, claim["asset_name"], claim["location_name"], claim["defect_type"],
+        claim["commissioned_on"], int(claim["within_dlp"]), claim["description"],
+        "LODGED" if claim["within_dlp"] else "OUTSIDE_WARRANTY",
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ))
+    conn.commit()
+    conn.close()
+    return reference
+
+
+def get_warranty_claims() -> list:
+    """Retrieves lodged defect liability claims."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM warranty_claims ORDER BY id DESC")
+    claims = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return claims
+
+
+# -------------------------------------------------------------------------
+# Three-way payment gatekeeper
+# -------------------------------------------------------------------------
+
+def evaluate_payment_gate(claim: dict, project: dict = None, citizen_flags: int = 0) -> dict:
+    """
+    Clears a contractor payment only when the contractor claim, the satellite audit
+    verdict and citizen oversight all agree that the asset exists.
+    """
+    checks = []
+
+    claimed_complete = claim.get("progress_pct", 0) >= 100
+    checks.append({
+        "name": "Contractor milestone declaration",
+        "passed": claimed_complete,
+        "detail": f"Contractor reports {claim.get('progress_pct', 0):.0f}% execution against milestone "
+                  f"'{claim.get('milestone', 'N/A')}'.",
+    })
+
+    verdict = (project or {}).get("verdict")
+    checks.append({
+        "name": "Independent satellite verification",
+        "passed": verdict == "VERIFIED",
+        "detail": f"Earth observation audit verdict: {verdict or 'NOT YET AUDITED'}.",
+    })
+
+    checks.append({
+        "name": "Citizen oversight clearance",
+        "passed": citizen_flags == 0,
+        "detail": f"{citizen_flags} open citizen report(s) against this work order.",
+    })
+
+    cleared = all(check["passed"] for check in checks)
+    return {
+        "cleared": cleared,
+        "decision": "RELEASE PAYMENT" if cleared else "PAYMENT WITHHELD",
+        "checks": checks,
+        "amount": claim.get("claim_amount", 0.0),
+    }

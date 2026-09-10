@@ -1,6 +1,5 @@
 """
 Module: Computer Vision & AI Detection Engine
-Author: Member 2 (Computer Vision & AI Lead)
 
 Detects structural footprints, computes change metrics, generates spatial difference heatmaps,
 and classifies project authenticity.
